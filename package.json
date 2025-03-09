@@ -1,0 +1,16 @@
+{
+    "name": "mmm-getshellscript",
+    "version": "1.0.0",
+    "description": "MagicMirror module to execute shell scripts via HTTP requests",
+    "main": "MMM-GetShellScript.js",
+    "scripts": {
+      "postinstall": "chmod +x scripts/*.sh",
+      "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "author": "UphillCheddar",
+    "license": "MIT",
+    "dependencies": {
+      "body-parser": "^1.19.0",
+      "express": "^4.17.1"
+    }
+  }
