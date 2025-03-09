@@ -15,7 +15,7 @@ A MagicMirror² module that adds a simple HTTP endpoint to your MagicMirror inst
 
 ```bash
 cd ~/MagicMirror/modules
-git clone https://github.com/YOUR_USERNAME/MMM-GetShellScript.git
+git clone https://github.com/uphillcheddar/MMM-GetShellScript.git
 cd MMM-GetShellScript
 npm install
 chmod +x scripts/sample.sh
