@@ -79,7 +79,7 @@ curl -X POST http://your-mirror-ip:8080/execute \
 3. Update your module config to point to your script
 (note that the npm install script automatically makes anything in the scripts subfolder executable so if you are uncomfortable with chmod just run npm install again )
 
-### Integration with Home Assistant 
+## Integration with Home Assistant 
 
 Home assistant is optional but its why i made this modules so including this for others if needed 
 
