@@ -11,6 +11,13 @@ A MagicMirror² module that adds a simple HTTP endpoint to your MagicMirror inst
 - Logs execution results on the MagicMirror display (optional)
 - Works with both GET and POST requests
 
+
+## Buy me a coffee
+I'm a overworked, and underpaid, tech worker in the analytics and intelligence industry. I spend my free time creating and sharing side projects like MagicMirror modules and 3D printing STL files with the community. If you enjoy my work and want to support future projects, buy me a coffee! ☕
+
+[Buy me a coffee](https://buymeacoffee.com/uphillcheddar)
+
+
 ## Installation
 
 ```bash
