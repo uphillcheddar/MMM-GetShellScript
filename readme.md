@@ -76,11 +76,6 @@ You can now define multiple routes and scripts in a single module instance. Each
 },
 ```
 
-**Benefits of multi-script configuration:**
-- Define multiple automation endpoints in one module instance
-- Each route can have its own authentication token for better security
-- Cleaner config file - no need to duplicate the module multiple times
-- All scripts share the same log display
 
 ### Single-Script Configuration (Legacy)
 
