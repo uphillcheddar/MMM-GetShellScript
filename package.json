@@ -1,6 +1,6 @@
 {
     "name": "mmm-getshellscript",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "description": "MagicMirror module to execute shell scripts via HTTP requests",
     "main": "MMM-GetShellScript.js",
     "scripts": {

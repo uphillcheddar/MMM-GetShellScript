@@ -1,5 +1,5 @@
 /**
- * Node Helper for MMM-GetShellScript
+ * Node Helper for MMM-ShellExecutor
  */
 
 const NodeHelper = require("node_helper");
@@ -11,43 +11,78 @@ const url = require("url");
 module.exports = NodeHelper.create({
     start: function() {
         console.log("Starting node helper for: " + this.name);
+        this.scriptConfigs = {}; // Store route -> script config mapping
     },
     
     socketNotificationReceived: function(notification, payload) {
         if (notification === "SETUP_ENDPOINT") {
             this.config = payload;
-            this.setupRoute();
-            console.log(`MMM-GetShellScript has set up route: ${this.config.route}`);
+            this.setupRoutes();
         }
     },
     
-    // Set up the route using MagicMirror's existing express app
-    setupRoute: function() {
+    // Set up routes using MagicMirror's existing express app
+    setupRoutes: function() {
         const self = this;
+        let scriptsToSetup = [];
         
-        // Create scripts directory if it doesn't exist
-        const scriptsDir = path.dirname(path.resolve(global.root_path + "/" + this.config.scriptPath));
-        if (!fs.existsSync(scriptsDir)) {
-            fs.mkdirSync(scriptsDir, { recursive: true });
-            console.log(`Created scripts directory at ${scriptsDir}`);
+        // Check if using new multi-script config or legacy single-script config
+        if (this.config.scripts && this.config.scripts.length > 0) {
+            // New multi-script config
+            scriptsToSetup = this.config.scripts.map(script => ({
+                route: script.route,
+                scriptPath: script.scriptPath,
+                authToken: script.authToken || this.config.authToken,
+                requireAuth: script.requireAuth !== undefined ? script.requireAuth : this.config.requireAuth
+            }));
+        } else {
+            // Legacy single-script config
+            scriptsToSetup = [{
+                route: this.config.route,
+                scriptPath: this.config.scriptPath,
+                authToken: this.config.authToken,
+                requireAuth: this.config.requireAuth
+            }];
         }
         
-        // Register the route handler
-        this.expressApp.get(this.config.route, (req, res) => {
-            console.log(`Received request at ${this.config.route}`);
-            this.handleRequest(req, res);
+        // Set up each route
+        scriptsToSetup.forEach(scriptConfig => {
+            // Store the script config for this route
+            this.scriptConfigs[scriptConfig.route] = scriptConfig;
+            
+            // Create scripts directory if it doesn't exist
+            const scriptsDir = path.dirname(path.resolve(global.root_path + "/" + scriptConfig.scriptPath));
+            if (!fs.existsSync(scriptsDir)) {
+                fs.mkdirSync(scriptsDir, { recursive: true });
+                console.log(`Created scripts directory at ${scriptsDir}`);
+            }
+            
+            // Register the route handler
+            this.expressApp.get(scriptConfig.route, (req, res) => {
+                console.log(`Received request at ${scriptConfig.route}`);
+                this.handleRequest(req, res, scriptConfig.route);
+            });
+            
+            console.log(`MMM-GetShellScript: Set up route ${scriptConfig.route} -> ${scriptConfig.scriptPath}`);
         });
     },
     
-    handleRequest: function(req, res) {
-        console.log("Processing request...");
+    handleRequest: function(req, res, route) {
+        console.log(`Processing request for route: ${route}`);
+        
+        // Get the script config for this route
+        const scriptConfig = this.scriptConfigs[route];
+        if (!scriptConfig) {
+            console.error(`No script config found for route: ${route}`);
+            return res.status(500).send("Internal configuration error");
+        }
         
         // Check authentication if required
-        if (this.config.requireAuth) {
+        if (scriptConfig.requireAuth) {
             const query = url.parse(req.url, true).query;
             const token = query.token;
             
-            if (token !== this.config.authToken) {
+            if (token !== scriptConfig.authToken) {
                 console.log("Authentication failed");
                 return res.status(401).send("Authentication failed");
             }
@@ -62,7 +97,7 @@ module.exports = NodeHelper.create({
             }
         });
         
-        this.executeScript(params, (success, output, error) => {
+        this.executeScript(scriptConfig, params, (success, output, error) => {
             if (success) {
                 res.send("Script executed successfully: " + output);
             } else {
@@ -70,6 +105,7 @@ module.exports = NodeHelper.create({
             }
             
             this.sendSocketNotification("SCRIPT_EXECUTED", {
+                route: route,
                 success: success,
                 output: output,
                 error: error
@@ -77,8 +113,8 @@ module.exports = NodeHelper.create({
         });
     },
     
-    executeScript: function(params, callback) {
-        const scriptPath = path.resolve(global.root_path + "/" + this.config.scriptPath);
+    executeScript: function(scriptConfig, params, callback) {
+        const scriptPath = path.resolve(global.root_path + "/" + scriptConfig.scriptPath);
         
         // Check if the script exists
         if (!fs.existsSync(scriptPath)) {

@@ -5,12 +5,28 @@
 
 Module.register("MMM-GetShellScript", {
     defaults: {
+        // Legacy single-script config (still supported)
         route: "/night",
-        authToken: "change-this-token",
+        authToken: "your-secret-token",
         scriptPath: "modules/MMM-GetShellScript/scripts/example.sh",
         requireAuth: true,
         showLogs: true,
         maxLogEntries: 10,
+        
+        // New multi-script config
+        scripts: []
+        // scripts: [
+        //     {
+        //         route: "/night",
+        //         scriptPath: "modules/MMM-GetShellScript/scripts/example.sh",
+        //         authToken: "token1", // optional, falls back to global authToken
+        //         requireAuth: true    // optional, falls back to global requireAuth
+        //     },
+        //     {
+        //         route: "/day",
+        //         scriptPath: "modules/MMM-GetShellScript/scripts/example2.sh"
+        //     }
+        // ]
     },
 
     logs: [],
@@ -37,6 +53,14 @@ Module.register("MMM-GetShellScript", {
             timeCell.className = "dimmed";
             row.appendChild(timeCell);
             
+            // Add route cell if available
+            if (log.route) {
+                const routeCell = document.createElement("td");
+                routeCell.innerHTML = log.route;
+                routeCell.className = "dimmed";
+                row.appendChild(routeCell);
+            }
+            
             const statusCell = document.createElement("td");
             statusCell.innerHTML = log.success ? "✓" : "✗";
             statusCell.className = log.success ? "bright" : "dimmed";
@@ -58,6 +82,7 @@ Module.register("MMM-GetShellScript", {
         if (notification === "SCRIPT_EXECUTED") {
             this.logs.unshift({
                 time: new Date().toLocaleTimeString(),
+                route: payload.route,
                 success: payload.success
             });
             

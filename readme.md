@@ -4,12 +4,21 @@ A MagicMirror² module that adds a simple HTTP endpoint to your MagicMirror inst
 
 ## Features
 
-- Adds a custom HTTP endpoint to your MagicMirror
-- Executes a predefined shell script when the endpoint is called
-- Supports authentication via token
+- Adds custom HTTP endpoints to your MagicMirror
+- **NEW: Support for multiple scripts per module instance** - define multiple routes and scripts in one config
+- Executes predefined shell scripts when endpoints are called
+- Supports authentication via token (global or per-route)
 - Passes parameters from the HTTP request to the script
 - Logs execution results on the MagicMirror display (optional)
 - Works with both GET and POST requests
+- Backward compatible with single-script configuration
+
+
+## Buy me a coffee
+I'm a overworked, and underpaid, tech worker in the analytics and intelligence industry. I spend my free time creating and sharing side projects like MagicMirror modules and 3D printing STL files with the community. If you enjoy my work and want to support future projects, buy me a coffee! ☕
+
+[Buy me a coffee](https://buymeacoffee.com/uphillcheddar)
+
 
 
 ## Buy me a coffee
@@ -29,7 +38,53 @@ npm install
 
 ## Configuration
 
-Add the module to your `config/config.js` file:
+### Multi-Script Configuration (NEW)
+
+You can now define multiple routes and scripts in a single module instance. Each route can have its own script and optionally its own authentication settings:
+
+```javascript
+{
+  module: "MMM-GetShellScript",
+  position: "bottom_right", // Can be any position or "none" to hide
+  config: {
+    // Global settings (optional, can be overridden per script)
+    authToken: "CHANGE-THIS-TO-A-SECRET-TOKEN",
+    requireAuth: true,
+    showLogs: true,
+    maxLogEntries: 10,
+    
+    // Define multiple scripts
+    scripts: [
+      {
+        route: "/night",
+        scriptPath: "modules/MMM-GetShellScript/scripts/night_time.sh",
+        authToken: "night-token",  // Optional: overrides global authToken
+        requireAuth: true          // Optional: overrides global requireAuth
+      },
+      {
+        route: "/day",
+        scriptPath: "modules/MMM-GetShellScript/scripts/day_time.sh",
+        authToken: "day-token"     // Optional: overrides global authToken
+      },
+      {
+        route: "/reboot",
+        scriptPath: "modules/MMM-GetShellScript/scripts/reboot.sh"
+        // Uses global authToken and requireAuth
+      }
+    ]
+  }
+},
+```
+
+**Benefits of multi-script configuration:**
+- Define multiple automation endpoints in one module instance
+- Each route can have its own authentication token for better security
+- Cleaner config file - no need to duplicate the module multiple times
+- All scripts share the same log display
+
+### Single-Script Configuration (Legacy)
+
+The original single-script format is still fully supported:
 
 ```javascript
 {
@@ -38,7 +93,7 @@ Add the module to your `config/config.js` file:
   config: {
     route: "/execute",  // The HTTP endpoint path
     authToken: "CHANGE-THIS-TO-A-SECRET-TOKEN", // Authentication token
-    scriptPath: "modules/MMM-GetShellScript/scripts/sample.sh", // Path to your script, if using default install this should work, just add/replace your script in the module's subfolder
+    scriptPath: "modules/MMM-GetShellScript/scripts/sample.sh", // Path to your script
     requireAuth: true,  // Whether to require authentication
     showLogs: true,     // Whether to show execution logs on the mirror
     maxLogEntries: 10   // Maximum number of log entries to display
@@ -64,18 +119,26 @@ ipWhitelist: [
 
 ### Calling the HTTP Endpoint
 
-You can call the endpoint using a simple GET request:
+**Single-script configuration:**
 
 ```
 http://your-mirror-ip:8080/execute?token=your-secret-token&action=refresh
 ```
 
-Or with a POST request:
+**Multi-script configuration:**
+
+```
+http://your-mirror-ip:8080/night?token=night-token
+http://your-mirror-ip:8080/day?token=day-token
+http://your-mirror-ip:8080/reboot?token=your-secret-token
+```
+
+You can also use POST requests:
 
 ```bash
-curl -X POST http://your-mirror-ip:8080/execute \
+curl -X POST http://your-mirror-ip:8080/night \
   -H "Content-Type: application/json" \
-  -d '{"token":"your-secret-token","action":"refresh"}'
+  -d '{"token":"night-token","brightness":"50"}'
 ```
 
 ### Creating Custom Scripts
@@ -85,12 +148,12 @@ curl -X POST http://your-mirror-ip:8080/execute \
 3. Update your module config to point to your script
 (note that the npm install script automatically makes anything in the scripts subfolder executable so if you are uncomfortable with chmod just run npm install again )
 
-## Integration with Home Assistant 
+## Integration with Home Assistant
 
-Home assistant is optional but its why i made this modules so including this for others if needed 
+Home assistant is optional but its why i made this modules so including this for others if needed
 
+### Single-Script Example
 
-Step 1
 Add to your Home Assistant `configuration.yaml`:
 
 ```yaml
@@ -110,6 +173,44 @@ automation:
       at: "22:00:00"
     action:
       service: rest_command.magic_mirror_execute
+```
+
+### Multi-Script Example
+
+With the new multi-script configuration, you can define separate commands for different actions:
+
+```yaml
+rest_command:
+  magic_mirror_night:
+    url: "http://your-mirror-ip:8080/night?token=night-token"
+    method: GET
+  
+  magic_mirror_day:
+    url: "http://your-mirror-ip:8080/day?token=day-token"
+    method: GET
+  
+  magic_mirror_reboot:
+    url: "http://your-mirror-ip:8080/reboot?token=your-secret-token"
+    method: GET
+```
+
+Then use them in automations:
+
+```yaml
+automation:
+  - alias: "Magic Mirror Night Mode"
+    trigger:
+      platform: time
+      at: "22:00:00"
+    action:
+      service: rest_command.magic_mirror_night
+  
+  - alias: "Magic Mirror Day Mode"
+    trigger:
+      platform: time
+      at: "07:00:00"
+    action:
+      service: rest_command.magic_mirror_day
 ```
 
 ## Security Considerations
