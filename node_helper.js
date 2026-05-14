@@ -1,109 +1,158 @@
 /**
- * Node Helper for MMM-ShellExecutor
+ * Node Helper for MMM-GetShellScript
  */
 
 const NodeHelper = require("node_helper");
-const { exec } = require("child_process");
+const { execFile } = require("child_process");
 const path = require("path");
 const fs = require("fs");
-const url = require("url");
 
 module.exports = NodeHelper.create({
     start: function() {
         console.log("Starting node helper for: " + this.name);
-        this.scriptConfigs = {}; // Store route -> script config mapping
+        this.scriptConfigs = {};
+        this.registeredRoutes = new Set();
+        this.lastExecuted = {};
+        this.logs = [];
+        this.logsPath = path.join(__dirname, "logs.json");
+        this.loadLogs();
     },
-    
+
+    loadLogs: function() {
+        try {
+            if (fs.existsSync(this.logsPath)) {
+                const data = fs.readFileSync(this.logsPath, "utf8");
+                this.logs = JSON.parse(data);
+            }
+        } catch (err) {
+            console.error("MMM-GetShellScript: Failed to load logs:", err);
+            this.logs = [];
+        }
+    },
+
+    saveLogs: function() {
+        try {
+            fs.writeFileSync(this.logsPath, JSON.stringify(this.logs), "utf8");
+        } catch (err) {
+            console.error("MMM-GetShellScript: Failed to save logs:", err);
+        }
+    },
+
     socketNotificationReceived: function(notification, payload) {
         if (notification === "SETUP_ENDPOINT") {
             this.config = payload;
             this.setupRoutes();
+            const maxEntries = this.config.maxLogEntries || 10;
+            this.sendSocketNotification("LOGS_LOADED", this.logs.slice(0, maxEntries));
         }
     },
-    
-    // Set up routes using MagicMirror's existing express app
+
     setupRoutes: function() {
-        const self = this;
         let scriptsToSetup = [];
-        
-        // Check if using new multi-script config or legacy single-script config
+
         if (this.config.scripts && this.config.scripts.length > 0) {
-            // New multi-script config
             scriptsToSetup = this.config.scripts.map(script => ({
                 route: script.route,
                 scriptPath: script.scriptPath,
                 authToken: script.authToken || this.config.authToken,
-                requireAuth: script.requireAuth !== undefined ? script.requireAuth : this.config.requireAuth
+                requireAuth: script.requireAuth !== undefined ? script.requireAuth : this.config.requireAuth,
+                cooldownSeconds: script.cooldownSeconds !== undefined ? script.cooldownSeconds : (this.config.cooldownSeconds || 0),
+                scriptTimeout: script.scriptTimeout || this.config.scriptTimeout || 30000
             }));
         } else {
-            // Legacy single-script config
             scriptsToSetup = [{
                 route: this.config.route,
                 scriptPath: this.config.scriptPath,
                 authToken: this.config.authToken,
-                requireAuth: this.config.requireAuth
+                requireAuth: this.config.requireAuth,
+                cooldownSeconds: this.config.cooldownSeconds || 0,
+                scriptTimeout: this.config.scriptTimeout || 30000
             }];
         }
-        
-        // Set up each route
+
         scriptsToSetup.forEach(scriptConfig => {
-            // Store the script config for this route
+            // Always update the stored config so token/path changes take effect on reconnect
             this.scriptConfigs[scriptConfig.route] = scriptConfig;
-            
-            // Create scripts directory if it doesn't exist
-            const scriptsDir = path.dirname(path.resolve(global.root_path + "/" + scriptConfig.scriptPath));
+
+            // Only register the Express route handler once
+            if (this.registeredRoutes.has(scriptConfig.route)) {
+                return;
+            }
+            this.registeredRoutes.add(scriptConfig.route);
+
+            const scriptPath = path.resolve(global.root_path + "/" + scriptConfig.scriptPath);
+
+            const scriptsDir = path.dirname(scriptPath);
             if (!fs.existsSync(scriptsDir)) {
                 fs.mkdirSync(scriptsDir, { recursive: true });
-                console.log(`Created scripts directory at ${scriptsDir}`);
+                console.log(`MMM-GetShellScript: Created scripts directory at ${scriptsDir}`);
             }
-            
-            // Register the route handler
+
+            // Make executable once at setup, not on every request
+            if (fs.existsSync(scriptPath)) {
+                try {
+                    fs.chmodSync(scriptPath, "755");
+                } catch (err) {
+                    console.error(`MMM-GetShellScript: Error making script executable: ${err}`);
+                }
+            }
+
             this.expressApp.get(scriptConfig.route, (req, res) => {
-                console.log(`Received request at ${scriptConfig.route}`);
                 this.handleRequest(req, res, scriptConfig.route);
             });
-            
-            console.log(`MMM-GetShellScript: Set up route ${scriptConfig.route} -> ${scriptConfig.scriptPath}`);
+
+            console.log(`MMM-GetShellScript: Registered route ${scriptConfig.route} -> ${scriptConfig.scriptPath}`);
         });
     },
-    
+
     handleRequest: function(req, res, route) {
-        console.log(`Processing request for route: ${route}`);
-        
-        // Get the script config for this route
         const scriptConfig = this.scriptConfigs[route];
         if (!scriptConfig) {
-            console.error(`No script config found for route: ${route}`);
             return res.status(500).send("Internal configuration error");
         }
-        
-        // Check authentication if required
+
         if (scriptConfig.requireAuth) {
-            const query = url.parse(req.url, true).query;
-            const token = query.token;
-            
+            const token = req.query.token;
             if (token !== scriptConfig.authToken) {
-                console.log("Authentication failed");
+                console.log(`MMM-GetShellScript: Auth failed for ${route}`);
                 return res.status(401).send("Authentication failed");
             }
         }
-        
-        // Get any parameters
-        const params = {};
-        const query = url.parse(req.url, true).query;
-        Object.keys(query).forEach(key => {
-            if (key !== "token") {
-                params[key] = query[key];
+
+        if (scriptConfig.cooldownSeconds > 0) {
+            const now = Date.now();
+            const last = this.lastExecuted[route] || 0;
+            if (now - last < scriptConfig.cooldownSeconds * 1000) {
+                const remaining = Math.ceil((scriptConfig.cooldownSeconds * 1000 - (now - last)) / 1000);
+                return res.status(429).send(`Cooldown active, try again in ${remaining}s`);
             }
+        }
+        this.lastExecuted[route] = Date.now();
+
+        const params = {};
+        Object.keys(req.query).forEach(key => {
+            if (key !== "token") params[key] = req.query[key];
         });
-        
+
         this.executeScript(scriptConfig, params, (success, output, error) => {
             if (success) {
                 res.send("Script executed successfully: " + output);
             } else {
                 res.status(500).send("Script execution failed: " + error);
             }
-            
+
+            const logEntry = {
+                time: new Date().toLocaleTimeString(),
+                route: route,
+                success: success
+            };
+            const maxEntries = (this.config && this.config.maxLogEntries) || 10;
+            this.logs.unshift(logEntry);
+            if (this.logs.length > maxEntries) {
+                this.logs = this.logs.slice(0, maxEntries);
+            }
+            this.saveLogs();
+
             this.sendSocketNotification("SCRIPT_EXECUTED", {
                 route: route,
                 success: success,
@@ -112,41 +161,34 @@ module.exports = NodeHelper.create({
             });
         });
     },
-    
+
     executeScript: function(scriptConfig, params, callback) {
         const scriptPath = path.resolve(global.root_path + "/" + scriptConfig.scriptPath);
-        
-        // Check if the script exists
+
         if (!fs.existsSync(scriptPath)) {
-            console.error(`Script not found: ${scriptPath}`);
+            console.error(`MMM-GetShellScript: Script not found: ${scriptPath}`);
             return callback(false, null, "Script not found");
         }
-        
-        // Make sure the script is executable
-        try {
-            fs.chmodSync(scriptPath, "755");
-        } catch (err) {
-            console.error(`Error making script executable: ${err}`);
-            return callback(false, null, "Error making script executable");
-        }
-        
-        // Build the command with parameters
-        let command = scriptPath;
-        
-        // Add parameters as command line arguments
+
+        // Build args array — avoids shell interpretation of param values entirely
+        const args = [];
         Object.keys(params).forEach(key => {
-            command += ` --${key}="${params[key]}"`;
+            // Reject keys that aren't safe identifiers to avoid mangling the arg format
+            if (/^[a-zA-Z0-9_-]+$/.test(key)) {
+                args.push(`--${key}=${params[key]}`);
+            }
         });
-        
-        console.log(`Executing: ${command}`);
-        
-        // Execute the script
-        exec(command, (error, stdout, stderr) => {
+
+        console.log(`MMM-GetShellScript: Executing ${scriptPath} with args:`, args);
+
+        execFile(scriptPath, args, { timeout: scriptConfig.scriptTimeout }, (error, stdout, stderr) => {
             if (error) {
-                console.error(`Execution error: ${error}`);
-                callback(false, stdout, stderr || error.toString());
+                const isTimeout = error.killed || error.code === null;
+                const msg = isTimeout ? "Script timed out" : (stderr || error.toString());
+                console.error(`MMM-GetShellScript: Execution error: ${msg}`);
+                callback(false, stdout, msg);
             } else {
-                console.log(`Script executed successfully`);
+                console.log("MMM-GetShellScript: Script executed successfully");
                 callback(true, stdout, stderr);
             }
         });

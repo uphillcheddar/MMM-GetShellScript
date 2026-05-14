@@ -12,6 +12,8 @@ Module.register("MMM-GetShellScript", {
         requireAuth: true,
         showLogs: true,
         maxLogEntries: 10,
+        scriptTimeout: 30000,
+        cooldownSeconds: 0,
         
         // New multi-script config
         scripts: []
@@ -79,17 +81,20 @@ Module.register("MMM-GetShellScript", {
     },
 
     socketNotificationReceived: function(notification, payload) {
-        if (notification === "SCRIPT_EXECUTED") {
+        if (notification === "LOGS_LOADED") {
+            this.logs = payload;
+            this.updateDom();
+        } else if (notification === "SCRIPT_EXECUTED") {
             this.logs.unshift({
                 time: new Date().toLocaleTimeString(),
                 route: payload.route,
                 success: payload.success
             });
-            
+
             if (this.logs.length > this.config.maxLogEntries) {
                 this.logs = this.logs.slice(0, this.config.maxLogEntries);
             }
-            
+
             this.updateDom();
             this.sendNotification("SHELL_SCRIPT_EXECUTED", payload);
         }

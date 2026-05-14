@@ -1,1 +1,4 @@
 package_lock.json
+logs.json
+scripts/*
+!scripts/example.sh
